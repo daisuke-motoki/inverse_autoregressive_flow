@@ -131,8 +131,8 @@ def convert_with_weight_normalization(link_class, *args, **kwargs):
                 if not hasattr(parent, '_W_params'):
                     parent._W_params = []
                 delattr(parent, name)
-                if not _is_chainer2:
-                    parent._params.remove(name)
+                # if not _is_chainer2:
+                #     parent._params.remove(name)
                 parent._W_params.append(name)
                 parent.add_param(name + '_v', W.shape)
                 _getattr(parent, name + '_v').data[:] = normalize(W.data)
