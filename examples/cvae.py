@@ -56,6 +56,7 @@ class IAFCVAE(chainer.Chain):
     def __call__(self, x):
         """
         """
+        x = x - 0.5
         batch_size = x.shape[0]
         image_size = x.shape[-1]
         data_size = batch_size
@@ -79,11 +80,12 @@ class IAFCVAE(chainer.Chain):
 
         x_hat = F.elu(h)
         x_hat = self.deconv1(x_hat)
-        # x_hat = F.clip(x_hat, -0.5 + 1/512., 0.5 - 1/512.)
+        x_hat = F.clip(x_hat, -0.5 + 1/512., 0.5 - 1/512.)
 
-        log_pxz = F.bernoulli_nll(x_hat, x, reduce="no")
+        # discretize_logits nisuru
+        log_pxz = -F.bernoulli_nll(x_hat, x, reduce="no")
         log_pxz = F.sum(log_pxz, axis=(1, 2, 3))
-        obj = -F.sum(kl_obj - log_pxz)/batch_size
+        obj = F.sum(kl_obj - log_pxz)/batch_size
         recon_loss = F.sum(log_pxz)/batch_size
 
         return x_hat, obj, recon_loss

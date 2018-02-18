@@ -5,7 +5,7 @@ from chainer import cuda
 from external.weight_normalization import weight_normalization as WN
 
 
-class IAFLayer(chainer.Link):
+class IAFLayer(chainer.Chain):
     """
     """
     def __init__(self, in_dim, z_dim, h_dim, ksize, pad,
@@ -83,7 +83,7 @@ class IAFLayer(chainer.Link):
         self.qz_mean = None
         self.qz_logv = None
         self.up_context = None
-        self.kl_min = 0
+        self.kl_min = 0.25
 
     def __call__(self, x):
         """
@@ -135,13 +135,19 @@ class IAFLayer(chainer.Link):
         sections = [self.z_dim]
         arw_mean, arw_logv = F.split_axis(h, sections, axis=1)
         # arw_mean, arw_logv = h[0] * 0.1, h[1] * 0.1  # ??
-        z = (z - 0.1*arw_mean) / F.exp(0.1*arw_logv)
+        z = (z - 0.1*arw_mean) / F.exp(F.clip(0.1*arw_logv, -100., 100.))
         logqs += arw_logv
 
         kl_cost = logqs - logps
 
         if self.kl_min > 0:
-            pass
+            batch_size = kl_cost.shape[0]
+            kl_cost_23 = F.sum(kl_cost, axis=(2, 3))
+            kl_ave = F.mean(kl_cost_23, axis=(0), keepdims=True)
+            kl_min = self.xp.array([self.kl_min], dtype="float32")
+            kl_ave = F.maximum(kl_ave, F.tile(kl_min, kl_ave.shape))
+            kl_ave = F.tile(kl_ave, (batch_size, 1))
+            kl_obj = F.sum(kl_ave, axis=1)
         else:
             kl_obj = F.sum(kl_cost, axis=(1, 2, 3))
 
@@ -164,9 +170,10 @@ class IAFLayer(chainer.Link):
         xp = cuda.get_array_module(mean)
         if sample is None:
             noise = xp.random.standard_normal(mean.shape)
-            sample = mean + xp.exp(0.5 * logvar) * noise
+            sample = mean + xp.exp(F.clip(0.5 * logvar, -100., 100.)) * noise
 
         output = -0.5 * (xp.log(2.0*xp.pi) +
-                         logvar + F.square(sample - mean) / F.exp(logvar))
+                         logvar + F.square(sample - mean) /
+                         F.exp(F.clip(logvar, -100., 100.)))
 
         return output
