@@ -1,12 +1,12 @@
 import chainer
 from chainer import datasets, serializers, iterators, optimizers, training
 from chainer.training import extensions
-from cvae import IAFCVAE
+from vae import IAFVAE
 
 
 if __name__ == "__main__":
-    result_dir = "result/cae-mnist"
-    train, test = datasets.get_mnist(withlabel=False, ndim=3)
+    result_dir = "result/vae-mnist"
+    train, test = datasets.get_mnist(withlabel=False, ndim=1)
     train_iter = iterators.SerialIterator(train,
                                           batch_size=128,
                                           shuffle=True)
@@ -15,21 +15,19 @@ if __name__ == "__main__":
                                          shuffle=False,
                                          repeat=False)
 
-    h_channel = 2
+    h_channel = 3
     params = dict(
-        in_channel=1,
+        in_channel=28*28,
         h_channel=h_channel,
-        depth=1,
-        n_iaf_block=1,
+        depth=2,
+        n_iaf_block=2,
         iaf_params=dict(
             in_dim=h_channel,
             z_dim=2,
             h_dim=h_channel,
-            ksize=3,
-            pad=1,
         )
     )
-    model = IAFCVAE(**params)
+    model = IAFVAE(**params)
 
     optimizer = optimizers.Adam()
     optimizer.setup(model)

@@ -1,12 +1,12 @@
 import chainer
 import chainer.links as L
 import chainer.functions as F
-from links.connection.iaf import ConvIAFLayer
+from links.connection.iaf import LinearIAFLayer
 from chainer import report
 from external.weight_normalization import weight_normalization as WN
 
 
-class IAFCVAE(chainer.Chain):
+class IAFVAE(chainer.Chain):
     """
     """
     def __init__(self,
@@ -17,29 +17,33 @@ class IAFCVAE(chainer.Chain):
                  iaf_params=dict()):
         """
         """
-        super(IAFCVAE, self).__init__()
+        super(IAFVAE, self).__init__()
         self.depth = depth
         self.n_iaf_block = n_iaf_block
 
         with self.init_scope():
             # encoder
-            self.conv1 = WN.convert_with_weight_normalization(
-                L.Convolution2D, in_channel, h_channel,
-                ksize=3, stride=2, pad=1
+            self.encoder1 = WN.convert_with_weight_normalization(
+                L.Linear, in_channel, in_channel
+            )
+            self.encoder2 = WN.convert_with_weight_normalization(
+                L.Linear, in_channel, h_channel
             )
             # IAF layers
             iaf_layers = list()
             for i in range(depth):
                 for j in range(n_iaf_block):
-                    downsample = (i > 0) and (j == 0)
                     iaf_layers.append(
-                        ConvIAFLayer(downsample=downsample, **iaf_params)
+                        LinearIAFLayer(**iaf_params)
                     )
             self.iaf_layers = chainer.ChainList(*iaf_layers)
             # decoder
-            self.deconv1 = WN.convert_with_weight_normalization(
-                L.Deconvolution2D, h_channel, in_channel,
-                ksize=4, stride=2, pad=1)
+            self.decoder1 = WN.convert_with_weight_normalization(
+                L.Linear, h_channel, in_channel
+            )
+            self.decoder2 = WN.convert_with_weight_normalization(
+                L.Linear, in_channel, in_channel
+            )
             self.h_top = chainer.Variable(
                 self.xp.zeros(h_channel, dtype="float32"), name="h_top")
 
@@ -48,18 +52,17 @@ class IAFCVAE(chainer.Chain):
         """
         x = x - 0.5
         batch_size = x.shape[0]
-        image_size = x.shape[-1]
 
         # encode
-        h = self.conv1(x)
+        h = self.encoder1(x)
+        h = self.encoder2(h)
         # IAF up
         for iaf_layer in self.iaf_layers:
             h = iaf_layer.forward_up(h)
 
         # IAF down
-        h_top = F.reshape(self.h_top, [1, -1, 1, 1])
-        wh_size = int(image_size/(2**self.depth))
-        z = F.tile(h_top, (batch_size, 1, wh_size, wh_size))
+        h_top = F.reshape(self.h_top, [1, -1])
+        z = F.tile(h_top, (batch_size, 1))
 
         kl_cost = kl_obj = 0.0
         for iaf_layer in self.iaf_layers[::-1]:
@@ -69,12 +72,13 @@ class IAFCVAE(chainer.Chain):
 
         # decoder
         x_hat = F.elu(z)
-        x_hat = self.deconv1(x_hat)
+        x_hat = self.decoder1(x_hat)
+        x_hat = self.decoder2(x_hat)
         x_hat = F.clip(x_hat, -0.5 + 1/512., 0.5 - 1/512.)
 
         # discretize_logits nisuru
         log_pxz = -F.bernoulli_nll(x_hat, x, reduce="no")
-        log_pxz = F.sum(log_pxz, axis=(1, 2, 3))
+        log_pxz = F.sum(log_pxz, axis=(1))
         obj = F.sum(kl_obj - log_pxz)/batch_size
         recon_loss = -F.sum(log_pxz)/batch_size
 
@@ -100,7 +104,7 @@ class IAFCVAE(chainer.Chain):
 
         # decoder
         x_hat = F.elu(z)
-        x_hat = self.deconv1(x_hat)
+        x_hat = self.decoder1(x_hat)
         x_hat = F.clip(x_hat, -0.5 + 1/512., 0.5 - 1/512.)
 
         return x_hat
